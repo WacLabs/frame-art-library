@@ -5,12 +5,17 @@ Samsung TV remote app (`com.wac.samRemote`). The app reads `docs/catalog/v1.json
 
     https://waclabs.github.io/frame-art-library/catalog/v1.json
 
-Only metadata lives here. Images are hotlinked from the museums:
+Only metadata lives here. Images come from the museums, routed through the [wsrv.nl](https://wsrv.nl) image
+CDN (`IMAGE_PROXY` in `tools/build_catalog.py`), which resizes them and caches them on Cloudflare for a year:
 
-| Source | Thumb | Full | Description |
+| Source | Thumb (proxied to ≤600px) | Full (proxied to ≤3840px) | Description |
 |---|---|---|---|
-| [National Gallery of Art](https://github.com/NationalGalleryOfArt/opendata) (CC0) | IIIF `!400,400` | IIIF `!3840,3840` | `assistivetext` (English) |
+| [National Gallery of Art](https://github.com/NationalGalleryOfArt/opendata) (CC0) | IIIF `!600,600` | IIIF `!3840,3840` | `assistivetext` (English) |
 | [Cleveland Museum of Art Open Access](https://openaccess-api.clevelandart.org/) (CC0) | `web` (900px) | `print` (≤3400px) | `description` (English) |
+
+Why the proxy: `api.nga.gov` was measured at 5–20 KB/s from Vietnam (a 3 MB painting took minutes) and
+Cleveland's smallest rendition is 300–900 KB, too heavy for a grid. If wsrv.nl ever becomes a problem, set
+`IMAGE_PROXY = ""` and publish again; the app picks the new URLs up through the version check.
 
 To move images to another host later, rewrite the `thumb`/`full` URLs and republish. The catalog URL can also be changed through the
 Remote Config key `frame_art_library_url`.
@@ -22,8 +27,9 @@ Remote Config key `frame_art_library_url`.
 `v1.json` only when the version is higher, then shows a "new artworks" banner that swaps the data in when
 tapped. No app release is needed.
 
-Some networks block GitHub Pages, so the app falls back to the jsDelivr mirror of this repo
-(`https://cdn.jsdelivr.net/gh/WacLabs/frame-art-library@main/docs/catalog/v1.json`). jsDelivr caches a
+Some networks block GitHub Pages, so the app falls back to two mirrors of this repo:
+`https://raw.githubusercontent.com/WacLabs/frame-art-library/main/docs/catalog/v1.json` (5 minute cache) and
+`https://cdn.jsdelivr.net/gh/WacLabs/frame-art-library@main/docs/catalog/v1.json`. jsDelivr caches a
 branch for up to 12 hours; the app ignores a mirror copy whose version is not higher than its own.
 
 ## Schema (`schemaVersion: 1`)

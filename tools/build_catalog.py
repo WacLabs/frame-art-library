@@ -20,6 +20,7 @@ import os
 import re
 import struct
 import sys
+import urllib.parse
 import threading
 import time
 import urllib.error
@@ -237,7 +238,7 @@ def nga_candidates():
             "theme": theme,
             "width": fw,
             "height": fh,
-            "thumb": f"{base}/full/!400,400/0/default.jpg",
+            "thumb": f"{base}/full/!{THUMB_MAX},{THUMB_MAX}/0/default.jpg",
             "full": f"{base}/full/!{FULL_MAX},{FULL_MAX}/0/default.jpg",
             "page": f"https://www.nga.gov/collection/art-object-page.{oid}.html",
             "license": "CC0",
@@ -385,6 +386,22 @@ def cmd_candidates():
     summary(cands)
 
 
+IMAGE_PROXY = "https://wsrv.nl/?url="
+THUMB_MAX = 600
+
+
+def proxied(url, size, quality):
+    """Route an image through the wsrv.nl resizing CDN (Cloudflare-cached for a year).
+
+    The museums' own hosts are slow or throttled on some networks (api.nga.gov measured at ~5-20 KB/s from
+    Vietnam) and Cleveland's smallest rendition is 300-900 KB, far too heavy for a grid thumbnail.
+    `we` = never enlarge. To stop using the proxy, set IMAGE_PROXY to "" and publish again.
+    """
+    if not IMAGE_PROXY:
+        return url
+    return f"{IMAGE_PROXY}{urllib.parse.quote(url, safe='')}&w={size}&h={size}&fit=inside&we&q={quality}"
+
+
 def cmd_publish():
     cands = json.load(open(os.path.join(BUILD, "candidates.json")))
     rejects, pins = read_list("rejects.txt"), read_list("pins.txt")
@@ -395,6 +412,10 @@ def cmd_publish():
     nga = [c for c in rest if c["source"] == "nga"][: TARGET_TOTAL - len(pinned) - len(cma)]
     final = interleave(pinned + nga + cma)[:TARGET_TOTAL]
     items = [{k: v for k, v in c.items() if not k.startswith("_")} for c in final]
+    for it in items:
+        # candidates.json built before THUMB_MAX existed still asks NGA for 400px.
+        it["thumb"] = proxied(it["thumb"].replace("/full/!400,400/", f"/full/!{THUMB_MAX},{THUMB_MAX}/"), THUMB_MAX, 78)
+        it["full"] = proxied(it["full"], FULL_MAX, 90)
     path = os.path.join(ROOT, "docs", "catalog", "v1.json")
     version_path = os.path.join(ROOT, "docs", "catalog", "v1.version.json")
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -427,7 +448,9 @@ def cmd_validate():
         ok = status in (200, 206) and headers.get("Content-Type", "").startswith("image/")
         return None if ok else f"{status} {url}"
 
-    urls = [u for it in items for u in (it["thumb"], it["full"])]
+    # Every thumbnail (this also warms the proxy cache) plus a sample of full images: fetching all 1000
+    # full-size files through the proxy would be abusive.
+    urls = [it["thumb"] for it in items] + [it["full"] for it in items[:: max(1, len(items) // 20)]]
     with concurrent.futures.ThreadPoolExecutor(8) as ex:
         bad = [b for b in ex.map(check, urls) if b]
     ids = {len(items), len({it["id"] for it in items})}
