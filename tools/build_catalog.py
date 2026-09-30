@@ -395,15 +395,23 @@ def cmd_publish():
     nga = [c for c in rest if c["source"] == "nga"][: TARGET_TOTAL - len(pinned) - len(cma)]
     final = interleave(pinned + nga + cma)[:TARGET_TOTAL]
     items = [{k: v for k, v in c.items() if not k.startswith("_")} for c in final]
-    catalog = {
-        "schemaVersion": 1,
-        "updatedAt": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "items": items,
-    }
     path = os.path.join(ROOT, "docs", "catalog", "v1.json")
+    version_path = os.path.join(ROOT, "docs", "catalog", "v1.version.json")
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    # The app keeps its cached catalog until it sees a higher version, so every publish that changes the
+    # items bumps it. v1.version.json is the small file the app polls; v1.json carries the same number.
+    previous = json.load(open(path)) if os.path.exists(path) else {}
+    version = previous.get("version", 0)
+    if previous.get("items") == items and version > 0:
+        print(f"items unchanged, keeping version {version}", file=sys.stderr)
+    else:
+        version += 1
+    updated_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    catalog = {"schemaVersion": 1, "version": version, "updatedAt": updated_at, "items": items}
     with open(path, "w") as f:
         json.dump(catalog, f, ensure_ascii=False, separators=(",", ":"))
+    with open(version_path, "w") as f:
+        json.dump({"version": version, "updatedAt": updated_at, "count": len(items)}, f)
     print(f"wrote {len(items)} items -> {path} ({os.path.getsize(path) // 1024} KB)", file=sys.stderr)
     summary(final)
 

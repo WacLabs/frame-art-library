@@ -12,9 +12,19 @@ Only metadata lives here. Images are hotlinked from the museums:
 | [National Gallery of Art](https://github.com/NationalGalleryOfArt/opendata) (CC0) | IIIF `!400,400` | IIIF `!3840,3840` | `assistivetext` (English) |
 | [Cleveland Museum of Art Open Access](https://openaccess-api.clevelandart.org/) (CC0) | `web` (900px) | `print` (≤3400px) | `description` (English) |
 
-To move images to another host later, rewrite the `thumb`/`full` URLs and republish. The app picks up the new
-catalog through its ETag check, with no app release needed. The catalog URL can also be changed through the
+To move images to another host later, rewrite the `thumb`/`full` URLs and republish. The catalog URL can also be changed through the
 Remote Config key `frame_art_library_url`.
+
+## Versioning
+
+`publish` bumps `version` in `v1.json` whenever the items change and writes the same number to
+`docs/catalog/v1.version.json`. The app keeps its cached catalog, polls the small version file, downloads
+`v1.json` only when the version is higher, then shows a "new artworks" banner that swaps the data in when
+tapped. No app release is needed.
+
+Some networks block GitHub Pages, so the app falls back to the jsDelivr mirror of this repo
+(`https://cdn.jsdelivr.net/gh/WacLabs/frame-art-library@main/docs/catalog/v1.json`). jsDelivr caches a
+branch for up to 12 hours; the app ignores a mirror copy whose version is not higher than its own.
 
 ## Schema (`schemaVersion: 1`)
 
