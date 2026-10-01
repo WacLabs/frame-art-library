@@ -1,0 +1,73 @@
+# Ids left out of the published catalog (nudity, gore, disturbing imagery), one per line. `# reason` allowed.
+cma-98439   # topless woman
+cma-95285   # nude bathers
+cma-130377  # nude figures
+cma-170883  # exposed breast
+cma-170884  # exposed breast (same image as cma-170883)
+cma-92937   # bloodied boxers
+nga-46026   # exposed breast
+nga-321     # exposed breast
+nga-119005  # axe raised over a figure on the ground
+nga-494     # adult nudes
+cma-150839  # nude nereids
+cma-141728  # battle carnage
+cma-162448  # severed head
+nga-46615   # nude bathers
+cma-142792  # nude woman
+cma-95287   # nude bathers
+cma-114616  # severed limbs and head
+cma-114613  # severed heads
+cma-114615  # battle, fallen warrior
+cma-618083  # carcasses and skeletons
+cma-95408   # demon scene, figure hung upside down
+cma-95265   # nude nymphs
+nga-86      # breast partly exposed
+nga-93665   # massacre scene
+nga-30212   # topless woman
+nga-72078   # exposed breast
+cma-171078  # nude bacchanal
+cma-124116  # flagellation of Christ
+cma-109030  # nude figures
+nga-71349   # nude figures
+nga-46544   # brothel scene
+nga-66775   # exposed breast
+nga-194944  # nude figures
+nga-75181   # odalisque
+nga-46189   # exposed breast
+cma-147479  # nude nymphs
+cma-129220  # wounds shown
+cma-148833  # crushed and drowning bodies
+cma-125579  # siege battle, fallen soldiers
+cma-125580  # siege battle, fallen soldiers
+cma-170796  # nude lovers
+cma-150022  # bare-breasted allegories
+cma-130495  # bather, bare chest
+cma-137695  # erotic scene
+cma-137701  # possible attack
+cma-314114  # forced embrace
+cma-149770  # animal attack
+cma-314475  # explicit erotic scene
+cma-162449  # severed head
+cma-162475  # severed head
+cma-149994  # severed heads
+cma-167580  # nude woman
+cma-149995  # severed head
+cma-150071  # bare chest
+cma-162483  # topless
+cma-149996  # severed head
+cma-162526  # severed head
+cma-162527  # severed head
+cma-103290  # knife attack
+cma-119910  # topless diver
+cma-149105  # demons
+cma-149107  # hanging skeleton
+cma-149104  # demons and skeletons
+cma-124118  # crowning with thorns
+cma-97146   # head on a platter
+nga-34117   # breasts through sheer drapery
+nga-41643   # nude adults
+cma-150075  # nude man
+cma-140337  # breast partly exposed
+cma-150087  # sword attack
+nga-127587  # exposed breast
+nga-41700   # nude adults

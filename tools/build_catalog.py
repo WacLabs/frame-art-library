@@ -6,8 +6,8 @@ Sources:
   - Cleveland Museum of Art Open Access API (CC0), hotlinked web/print renditions.
 
 Usage:
-  python3 tools/build_catalog.py candidates   # -> build/candidates.json (NGA + Cleveland, filtered, themed)
-  python3 tools/build_catalog.py publish      # candidates - curation/rejects.txt -> docs/catalog/v1.json (1000)
+  python3 tools/build_catalog.py candidates   # -> build/candidates.json (every NGA + Cleveland painting that passes the filters)
+  python3 tools/build_catalog.py publish      # candidates - curation/rejects.txt -> docs/catalog/v1.json
 
 Stdlib only. NGA CSVs are read from .cache/nga/ (downloaded from GitHub when missing).
 """
@@ -33,12 +33,8 @@ UA = "frame-art-library-builder/1.0 (+https://github.com/WacLabs/frame-art-libra
 NGA_DATA = "https://github.com/NationalGalleryOfArt/opendata/raw/main/data/"
 CMA_API = "https://openaccess-api.clevelandart.org/api/artworks/"
 
-TARGET_TOTAL = 1000
-TARGET_NGA = 830          # candidates, trimmed to ~750 after review
-TARGET_CMA = 280          # candidates, trimmed to ~250 after review
-MIN_LONG_SIDE = 3000
+MIN_LONG_SIDE = 2000
 FULL_MAX = 3840
-PER_ARTIST_CAP = 18
 DESC_MAX = 600
 
 THEMES = ["landscape", "seascape", "flowers", "still_life", "city", "japan_asia", "portrait", "modern", "classic"]
@@ -198,7 +194,7 @@ def nga_candidates():
             continue
         if max(w, h) < MIN_LONG_SIDE:
             continue
-        if r["maxpixels"] and int(r["maxpixels"]) < FULL_MAX:
+        if r["maxpixels"] and int(r["maxpixels"]) < MIN_LONG_SIDE:
             continue
         if oid not in images or int(r["sequence"] or 0) < int(images[oid]["sequence"] or 0):
             images[oid] = r
@@ -239,7 +235,8 @@ def nga_candidates():
             "width": fw,
             "height": fh,
             "thumb": f"{base}/full/!{THUMB_MAX},{THUMB_MAX}/0/default.jpg",
-            "full": f"{base}/full/!{FULL_MAX},{FULL_MAX}/0/default.jpg",
+            # Ask for the size the image really has (capped): IIIF may upscale a smaller original.
+            "full": f"{base}/full/!{max(fw, fh)},{max(fw, fh)}/0/default.jpg",
             "page": f"https://www.nga.gov/collection/art-object-page.{oid}.html",
             "license": "CC0",
             "_score": score(theme, fw, fh, desc, text, s),
@@ -266,32 +263,32 @@ def score(theme, w, h, desc, text, styles):
 
 # ---------------------------------------------------------------- Cleveland
 
-CMA_QUERIES = [
-    # Asian art is what NGA lacks: ukiyo-e prints and scroll paintings, all themed japan_asia.
-    ({"department": "Japanese Art", "type": "Print"}, ["landscape", "Hiroshige", "Hokusai", "Fuji", "flowers", "birds",
-                                                      "snow", "moon", "river", "bridge", "waterfall", "rain"]),
-    ({"department": "Japanese Art", "type": "Painting"}, ["landscape", "flowers", "birds", "autumn", "spring"]),
-    ({"department": "Chinese Art", "type": "Painting"}, ["landscape", "flowers", "birds", "bamboo", "mountain", "lotus"]),
-    ({"department": "Korean Art", "type": "Painting"}, [""]),
-]
+# Every CC0 painting in any department, plus Japanese woodblock prints (ukiyo-e fit The Frame well).
+CMA_QUERIES = [{"type": "Painting"}, {"type": "Print", "department": "Japanese Art"}]
+CMA_PAGE = 1000
 CMA_MAX_RATIO = 2.4   # handscrolls / tall hanging scrolls do not fit a 16:9 TV
+CMA_ASIAN_DEPTS = {"Japanese Art", "Chinese Art", "Korean Art", "Indian and Southeast Asian Art"}
 
 
 def cma_candidates():
     seen, out = set(), []
-    for base, queries in CMA_QUERIES:
-        for q in queries:
-            params = {**base, "cc0": "1", "has_image": "1", "limit": "1000"}
-            if q:
-                params["q"] = q
-            status, _, body = http_get(CMA_API + "?" + urllib.parse.urlencode(params), timeout=90)
-            data = json.loads(body).get("data", []) if status == 200 else []
-            print(f"cma {base['department']}/{base['type']} q={q!r}: {len(data)}", file=sys.stderr)
+    for base in CMA_QUERIES:
+        skip = 0
+        while True:
+            params = {**base, "cc0": "1", "has_image": "1", "limit": str(CMA_PAGE), "skip": str(skip)}
+            status, _, body = http_get(CMA_API + "?" + urllib.parse.urlencode(params), timeout=120)
+            if status != 200:
+                sys.exit(f"cma {base} skip={skip}: HTTP {status}")
+            data = json.loads(body).get("data", [])
+            print(f"cma {base} skip={skip}: {len(data)}", file=sys.stderr)
             for d in data:
                 item = cma_item(d)
                 if item and item["id"] not in seen:
                     seen.add(item["id"])
                     out.append(item)
+            if len(data) < CMA_PAGE:
+                break
+            skip += CMA_PAGE
     return out
 
 
@@ -316,6 +313,9 @@ def cma_item(d):
     artist = artist.split(" (")[0].strip() or ", ".join(d.get("culture") or [])[:80]
     fw, fh = full_dims(w, h)
     text = f"{title} {desc or ''}"
+    year = d.get("creation_date_earliest")
+    theme = pick_theme(text, [], [], year if isinstance(year, int) else None,
+                       asian=d.get("department") in CMA_ASIAN_DEPTS)
     return {
         "id": f"cma-{d['id']}",
         "source": "cma",
@@ -325,33 +325,18 @@ def cma_item(d):
         "medium": (d.get("technique") or "").strip(),
         "description": desc,
         "descriptionLang": "en",
-        "theme": "japan_asia",
+        "theme": theme,
         "width": fw,
         "height": fh,
         "thumb": web["url"],
         "full": img["url"],
         "page": d.get("url") or f"https://www.clevelandart.org/art/{d.get('accession_number')}",
         "license": "CC0",
-        "_score": score("japan_asia", w, h, desc, text, []) + (2 if d.get("is_highlight") else 0),
+        "_score": score(theme, w, h, desc, text, []) + (2 if d.get("is_highlight") else 0),
     }
 
 
 # ---------------------------------------------------------------- selection
-
-def select(items, n):
-    """Top-n by score with a per-artist cap and a floor per theme where the pool allows."""
-    items = sorted(items, key=lambda x: -x["_score"])
-    per_artist, chosen = {}, []
-    for it in items:
-        a = it["artist"].lower() or it["id"]
-        if per_artist.get(a, 0) >= PER_ARTIST_CAP:
-            continue
-        per_artist[a] = per_artist.get(a, 0) + 1
-        chosen.append(it)
-        if len(chosen) == n:
-            break
-    return chosen
-
 
 def interleave(items):
     """Default display order: round-robin across themes so the first screen is varied."""
@@ -380,13 +365,14 @@ def cmd_candidates():
     print(f"nga pool {len(nga)}", file=sys.stderr)
     cma = cma_candidates()
     print(f"cma pool {len(cma)}", file=sys.stderr)
-    cands = select(nga, TARGET_NGA) + select(cma, TARGET_CMA)
+    cands = sorted(nga + cma, key=lambda x: -x["_score"])
     json.dump(cands, open(os.path.join(BUILD, "candidates.json"), "w"), ensure_ascii=False, indent=1)
     json.dump(nga + cma, open(os.path.join(BUILD, "pool.json"), "w"), ensure_ascii=False)
     summary(cands)
 
 
 IMAGE_PROXY = "https://wsrv.nl/?url="
+DESC_SHARDS = 64
 THUMB_MAX = 600
 
 
@@ -408,29 +394,49 @@ def cmd_publish():
     kept = [c for c in cands if c["id"] not in rejects]
     pinned = [c for c in kept if c["id"] in pins]
     rest = [c for c in kept if c["id"] not in pins]
-    cma = [c for c in rest if c["source"] == "cma"][:250]
-    nga = [c for c in rest if c["source"] == "nga"][: TARGET_TOTAL - len(pinned) - len(cma)]
-    final = interleave(pinned + nga + cma)[:TARGET_TOTAL]
+    final = interleave(pinned) + interleave(rest)
     items = [{k: v for k, v in c.items() if not k.startswith("_")} for c in final]
     for it in items:
         # candidates.json built before THUMB_MAX existed still asks NGA for 400px.
         it["thumb"] = proxied(it["thumb"].replace("/full/!400,400/", f"/full/!{THUMB_MAX},{THUMB_MAX}/"), THUMB_MAX, 78)
         it["full"] = proxied(it["full"], FULL_MAX, 90)
-    path = os.path.join(ROOT, "docs", "catalog", "v1.json")
-    version_path = os.path.join(ROOT, "docs", "catalog", "v1.version.json")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    # v1.json is frozen at the 1000-item catalog for app versions without search; everything new goes to v2.
+    # v2 keeps descriptions (2/3 of the bytes, only shown in the detail sheet) out of catalog.json: each item
+    # carries `desc` = the number of the desc/NN.json shard holding its text, absent when it has none.
+    out_dir = os.path.join(ROOT, "docs", "catalog", "v2")
+    path = os.path.join(out_dir, "catalog.json")
+    version_path = os.path.join(out_dir, "catalog.version.json")
+    desc_dir = os.path.join(out_dir, "desc")
+    os.makedirs(desc_dir, exist_ok=True)
+    shards = [{} for _ in range(DESC_SHARDS)]
+    described = [it for it in items if it.get("description")]
+    for n, it in enumerate(described):
+        shard = n * DESC_SHARDS // len(described)
+        shards[shard][it["id"]] = {"text": it["description"], "lang": it.get("descriptionLang") or "en"}
+        it["desc"] = shard
+    for it in items:
+        it.pop("description", None)
+        it.pop("descriptionLang", None)
     # The app keeps its cached catalog until it sees a higher version, so every publish that changes the
-    # items bumps it. v1.version.json is the small file the app polls; v1.json carries the same number.
+    # items or a description bumps it. catalog.version.json is the small file the app polls.
     previous = json.load(open(path)) if os.path.exists(path) else {}
-    version = previous.get("version", 0)
-    if previous.get("items") == items and version > 0:
+    previous_shards = [
+        json.load(open(f)).get("items") if os.path.exists(f) else None
+        for f in (os.path.join(desc_dir, f"{n:02d}.json") for n in range(DESC_SHARDS))
+    ]
+    # Start above the frozen v1 so nothing can mistake one for the other.
+    version = previous.get("version", 3)
+    if previous.get("items") == items and previous_shards == shards and "version" in previous:
         print(f"items unchanged, keeping version {version}", file=sys.stderr)
     else:
         version += 1
     updated_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    catalog = {"schemaVersion": 1, "version": version, "updatedAt": updated_at, "items": items}
+    catalog = {"schemaVersion": 2, "version": version, "updatedAt": updated_at, "items": items}
     with open(path, "w") as f:
         json.dump(catalog, f, ensure_ascii=False, separators=(",", ":"))
+    for n, shard in enumerate(shards):
+        with open(os.path.join(desc_dir, f"{n:02d}.json"), "w") as f:
+            json.dump({"version": version, "items": shard}, f, ensure_ascii=False, separators=(",", ":"))
     with open(version_path, "w") as f:
         json.dump({"version": version, "updatedAt": updated_at, "count": len(items)}, f)
     print(f"wrote {len(items)} items -> {path} ({os.path.getsize(path) // 1024} KB)", file=sys.stderr)
@@ -439,8 +445,14 @@ def cmd_publish():
 
 def cmd_validate():
     """Every thumb/full URL of the published catalog must answer 200/206 with an image."""
-    items = json.load(open(os.path.join(ROOT, "docs", "catalog", "v1.json")))["items"]
-    limiter = RateLimiter(8)
+    items = json.load(open(os.path.join(ROOT, "docs", "catalog", "v2", "catalog.json")))["items"]
+    limiter = RateLimiter(4)
+
+    def source(url):
+        # The proxy bans an IP that hammers it, so check the museum URL behind it instead.
+        if IMAGE_PROXY and url.startswith(IMAGE_PROXY):
+            return urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["url"][0]
+        return url
 
     def check(url):
         limiter.wait()
@@ -448,11 +460,15 @@ def cmd_validate():
         ok = status in (200, 206) and headers.get("Content-Type", "").startswith("image/")
         return None if ok else f"{status} {url}"
 
-    # Every thumbnail (this also warms the proxy cache) plus a sample of full images: fetching all 1000
-    # full-size files through the proxy would be abusive.
-    urls = [it["thumb"] for it in items] + [it["full"] for it in items[:: max(1, len(items) // 20)]]
-    with concurrent.futures.ThreadPoolExecutor(8) as ex:
+    # Every thumbnail source plus a sample of full images, then a few thumbs through the proxy itself.
+    urls = [source(it["thumb"]) for it in items] + [source(it["full"]) for it in items[:: max(1, len(items) // 20)]]
+    with concurrent.futures.ThreadPoolExecutor(4) as ex:
         bad = [b for b in ex.map(check, urls) if b]
+    proxy_sample = [it["thumb"] for it in items[:: max(1, len(items) // 10)]]
+    for url in proxy_sample:
+        time.sleep(1)
+        bad += [b for b in [check(url)] if b]
+    urls += proxy_sample
     ids = {len(items), len({it["id"] for it in items})}
     print(f"{len(items)} items, unique ids {ids}, {len(urls)} urls, {len(bad)} bad", file=sys.stderr)
     for b in bad:
